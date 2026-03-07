@@ -52,12 +52,12 @@ git push && git push --tags
 The GitHub Actions workflow will automatically:
 
 - Update the Homebrew formula in `tcurdt/homebrew-tap`
-- Users can install via `brew install tcurdt/tap/acme-dns-auth`
+- Users can install via `brew install tcurdt/tap/acme-dns-client`
 
 ### 8. Verify
 
 After the workflow completes:
 
 - Check that the Homebrew formula was updated
-- Test installation: `brew install tcurdt/tap/acme-dns-auth`
-- Test Nix: `nix run github:tcurdt/acme-dns-auth -- --version`
+- Test installation: `brew install tcurdt/tap/acme-dns-client`
+- Test Nix: `nix run github:tcurdt/acme-dns-client -- --version`

@@ -47,13 +47,13 @@ jobs:
         run: |
           VERSION=${GITHUB_REF_NAME#v}
           cd target/${{ matrix.target }}/release
-          tar czf ../../../acme-dns-auth-${VERSION}-${{ matrix.homebrew_arch }}.tar.gz acme-dns-auth
+          tar czf ../../../acme-dns-client-${VERSION}-${{ matrix.homebrew_arch }}.tar.gz acme-dns-client
 
       - name: upload artifact
         uses: actions/upload-artifact@v6
         with:
-          name: acme-dns-auth-${{ matrix.target }}
-          path: acme-dns-auth-*-${{ matrix.homebrew_arch }}.tar.gz
+          name: acme-dns-client-${{ matrix.target }}
+          path: acme-dns-client-*-${{ matrix.homebrew_arch }}.tar.gz
 
   release:
     needs: build
@@ -64,7 +64,7 @@ jobs:
       - name: download artifacts
         uses: actions/download-artifact@v7
         with:
-          pattern: acme-dns-auth-*
+          pattern: acme-dns-client-*
           merge-multiple: true
 
       - name: create release
@@ -74,7 +74,7 @@ jobs:
           gh release create ${{ github.ref_name }} \
             --title ${{ github.ref_name }} \
             --generate-notes \
-            acme-dns-auth-*.tar.gz
+            acme-dns-client-*.tar.gz
 
   homebrew:
     needs: release
@@ -94,6 +94,6 @@ jobs:
           # target_linux_amd64: true
           # target_linux_arm64: true
           install: |
-            bin.install "acme-dns-auth"
+            bin.install "acme-dns-client"
           test: |
-            assert_match "acme-dns-auth", shell_output("#{bin}/acme-dns-auth --help")
+            assert_match "acme-dns-client", shell_output("#{bin}/acme-dns-client --help")

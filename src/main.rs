@@ -6,13 +6,13 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
-use acme_dns_auth::acme::{AcmeConfig, IssuanceResult, key_der_to_pem, run_acme};
-use acme_dns_auth::artifacts::{cleanup_staging, promote, staging_dir, write_staged};
-use acme_dns_auth::cli::{Args, LETSENCRYPT_STAGING};
-use acme_dns_auth::config::{ConfigFile, merge};
-use acme_dns_auth::dns::{DnsServer, RecordStore, check_ns_delegation};
-use acme_dns_auth::domain::Domain;
-use acme_dns_auth::errors::{AppError, exit_code};
+use acme_dns_client::acme::{AcmeConfig, IssuanceResult, key_der_to_pem, run_acme};
+use acme_dns_client::artifacts::{cleanup_staging, promote, staging_dir, write_staged};
+use acme_dns_client::cli::{Args, LETSENCRYPT_STAGING};
+use acme_dns_client::config::{ConfigFile, merge};
+use acme_dns_client::dns::{DnsServer, RecordStore, check_ns_delegation};
+use acme_dns_client::domain::Domain;
+use acme_dns_client::errors::{AppError, exit_code};
 use clap::Parser;
 
 /// Fetches the external public IPv4 address via ipv4.icanhazip.com.

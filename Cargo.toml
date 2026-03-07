@@ -1,10 +1,10 @@
 [package]
-name = "acme-dns-auth"
+name = "acme-dns-client"
 version = "0.1.0"
 edition = "2024"
 license = "Apache-2.0"
-homepage = "https://github.com/tcurdt/acme-dns-auth"
-repository = "https://github.com/tcurdt/acme-dns-auth"
+homepage = "https://github.com/tcurdt/acme-dns-client"
+repository = "https://github.com/tcurdt/acme-dns-client"
 description = "ACME client for just a simple DNS challenge"
 
 
