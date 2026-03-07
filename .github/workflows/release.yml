@@ -82,7 +82,7 @@ jobs:
     environment: release
     steps:
       - name: update homebrew tap
-        uses: Justintime50/homebrew-releaser@v3.1.0
+        uses: Justintime50/homebrew-releaser@v3.3.0
         with:
           debug: true
           homebrew_owner: tcurdt
