@@ -4,7 +4,7 @@ use std::process;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use acme_dns_client::acme::{AcmeConfig, IssuanceResult, key_der_to_pem, run_acme};
 use acme_dns_client::artifacts::{cleanup_staging, promote, staging_dir, write_staged};
@@ -35,6 +35,22 @@ fn fetch_external_ipv6() -> Option<IpAddr> {
         .into_string()
         .ok()?;
     IpAddr::from_str(body.trim()).ok()
+}
+
+/// Returns the number of days remaining until the certificate at `path` expires.
+/// Returns `None` if the file doesn't exist or can't be parsed.
+fn cert_days_remaining(path: &Path) -> Option<i64> {
+    use x509_parser::prelude::*;
+
+    let pem_data = std::fs::read(path).ok()?;
+    let (_, pem) = parse_x509_pem(&pem_data).ok()?;
+    let (_, cert) = parse_x509_certificate(&pem.contents).ok()?;
+    let not_after = cert.validity().not_after.timestamp();
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+    Some((not_after - now) / 86400)
 }
 
 fn run() -> Result<(), AppError> {
@@ -78,6 +94,18 @@ fn run() -> Result<(), AppError> {
         return Err(AppError::Config(
             "at least one domain must be specified".to_string(),
         ));
+    }
+
+    // Check if the existing certificate is still recent enough to skip renewal.
+    if !args.force {
+        let cert_path = Path::new(&config.output_dir).join("cert.pem");
+        if let Some(days_remaining) = cert_days_remaining(&cert_path) {
+            let threshold = args.renew_days_before_expire as i64;
+            if days_remaining > threshold {
+                println!("cert is still recent enough");
+                return Ok(());
+            }
+        }
     }
 
     log::info!("Provider URL: {}", config.provider_url);

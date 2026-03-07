@@ -54,4 +54,12 @@ pub struct Args {
     /// Maximum in-flight DNS queries before refusing new ones (default: `0`, no cap).
     #[arg(long = "dns-inflight-cap")]
     pub dns_inflight_cap: Option<usize>,
+
+    /// Skip renewal if the existing certificate expires more than this many days from now (default: `7`).
+    #[arg(long = "renew-days-before-expire", default_value = "7")]
+    pub renew_days_before_expire: u64,
+
+    /// Force renewal even if the certificate is still recent enough.
+    #[arg(long = "force")]
+    pub force: bool,
 }
