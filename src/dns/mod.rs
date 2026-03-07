@@ -302,7 +302,7 @@ pub fn check_ns_delegation(
     for section in [response.answers(), response.name_servers()] {
         for record in section {
             if record.record_type() == RecordType::NS
-                && let Some(RData::NS(ns_name)) = record.data()
+                && let RData::NS(ns_name) = record.data()
             {
                 found.push(ns_name.to_string());
             }
@@ -382,7 +382,7 @@ mod tests {
         assert_eq!(msg.answers().len(), 1);
 
         match msg.answers()[0].data() {
-            Some(RData::TXT(txt)) => {
+            RData::TXT(txt) => {
                 let bytes: &[u8] = &txt.txt_data()[0];
                 let s = std::str::from_utf8(bytes).unwrap();
                 assert_eq!(s, "test_challenge_value");
@@ -409,7 +409,7 @@ mod tests {
             .answers()
             .iter()
             .filter_map(|r| {
-                if let Some(RData::TXT(txt)) = r.data() {
+                if let RData::TXT(txt) = r.data() {
                     std::str::from_utf8(&txt.txt_data()[0])
                         .ok()
                         .map(|s| s.to_string())
@@ -512,7 +512,7 @@ mod tests {
         assert_eq!(msg.answers().len(), 1);
 
         match msg.answers()[0].data() {
-            Some(RData::TXT(txt)) => {
+            RData::TXT(txt) => {
                 let bytes: &[u8] = &txt.txt_data()[0];
                 let s = std::str::from_utf8(bytes).unwrap();
                 assert_eq!(s, "integration_test_value");
@@ -552,7 +552,7 @@ mod tests {
             .answers()
             .iter()
             .filter_map(|r| {
-                if let Some(RData::TXT(txt)) = r.data() {
+                if let RData::TXT(txt) = r.data() {
                     std::str::from_utf8(&txt.txt_data()[0])
                         .ok()
                         .map(|s| s.to_string())
