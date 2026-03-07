@@ -1,0 +1,99 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: build-${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - target: aarch64-apple-darwin
+            os: macos-latest
+            homebrew_arch: darwin-arm64
+          # - target: x86_64-apple-darwin
+          #   os: macos-13
+          #   homebrew_arch: darwin-amd64
+          # - target: x86_64-unknown-linux-musl
+          #   os: ubuntu-latest
+          #   homebrew_arch: linux-amd64
+          # - target: aarch64-unknown-linux-musl
+          #   os: ubuntu-latest
+          #   homebrew_arch: linux-arm64
+          #   use-cross: true
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: install rust
+        uses: dtolnay/rust-toolchain@1.92.0
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: install cross
+        if: matrix.use-cross
+        run: cargo install cross --git https://github.com/cross-rs/cross
+
+      - name: build
+        run: ${{ matrix.use-cross && 'cross' || 'cargo' }} build --release --target ${{ matrix.target }}
+
+      - name: create archive
+        run: |
+          VERSION=${GITHUB_REF_NAME#v}
+          cd target/${{ matrix.target }}/release
+          tar czf ../../../acme-dns-auth-${VERSION}-${{ matrix.homebrew_arch }}.tar.gz acme-dns-auth
+
+      - name: upload artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: acme-dns-auth-${{ matrix.target }}
+          path: acme-dns-auth-*-${{ matrix.homebrew_arch }}.tar.gz
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: download artifacts
+        uses: actions/download-artifact@v7
+        with:
+          pattern: acme-dns-auth-*
+          merge-multiple: true
+
+      - name: create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create ${{ github.ref_name }} \
+            --title ${{ github.ref_name }} \
+            --generate-notes \
+            acme-dns-auth-*.tar.gz
+
+  homebrew:
+    needs: release
+    runs-on: ubuntu-latest
+    environment: release
+    steps:
+      - name: update homebrew tap
+        uses: Justintime50/homebrew-releaser@v3.1.0
+        with:
+          debug: true
+          homebrew_owner: tcurdt
+          homebrew_tap: homebrew-tap
+          github_token: ${{ secrets.PAT_RELEASE }}
+          version: ${{ github.ref_name }}
+          target_darwin_arm64: true
+          # target_darwin_amd64: true
+          # target_linux_amd64: true
+          # target_linux_arm64: true
+          install: |
+            bin.install "acme-dns-auth"
+          test: |
+            assert_match "acme-dns-auth", shell_output("#{bin}/acme-dns-auth --help")
