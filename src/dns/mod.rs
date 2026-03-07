@@ -301,10 +301,10 @@ pub fn check_ns_delegation(
     let mut found: Vec<String> = Vec::new();
     for section in [response.answers(), response.name_servers()] {
         for record in section {
-            if record.record_type() == RecordType::NS
-                && let Some(RData::NS(ns_name)) = record.data()
-            {
-                found.push(ns_name.to_string());
+            if record.record_type() == RecordType::NS {
+                if let Some(RData::NS(ns_name)) = record.data() {
+                    found.push(ns_name.to_string());
+                }
             }
         }
     }
