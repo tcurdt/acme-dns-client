@@ -366,7 +366,7 @@ fn resolve_ns_ips(ns_hosts: &[String], resolver: &str) -> Result<Vec<IpAddr>, Ap
         let a_response = send_dns_query(host, RecordType::A, resolver, true)?;
         for record in a_response.answers() {
             if record.record_type() == RecordType::A
-                && let Some(RData::A(ipv4)) = record.data()
+                && let RData::A(ipv4) = record.data()
             {
                 ips.push(IpAddr::V4((*ipv4).into()));
             }
@@ -375,7 +375,7 @@ fn resolve_ns_ips(ns_hosts: &[String], resolver: &str) -> Result<Vec<IpAddr>, Ap
         let aaaa_response = send_dns_query(host, RecordType::AAAA, resolver, true)?;
         for record in aaaa_response.answers() {
             if record.record_type() == RecordType::AAAA
-                && let Some(RData::AAAA(ipv6)) = record.data()
+                && let RData::AAAA(ipv6) = record.data()
             {
                 ips.push(IpAddr::V6((*ipv6).into()));
             }
@@ -391,7 +391,7 @@ fn collect_ns_records(message: &Message) -> Vec<String> {
     for section in [message.answers(), message.name_servers()] {
         for record in section {
             if record.record_type() == RecordType::NS
-                && let Some(RData::NS(ns_name)) = record.data()
+                && let RData::NS(ns_name) = record.data()
             {
                 found.push(ensure_fqdn(&ns_name.to_string()));
             }
@@ -567,7 +567,7 @@ mod tests {
         assert_eq!(msg.answers().len(), 1);
 
         match msg.answers()[0].data() {
-            Some(RData::TXT(txt)) => {
+            RData::TXT(txt) => {
                 let bytes: &[u8] = &txt.txt_data()[0];
                 let s = std::str::from_utf8(bytes).unwrap();
                 assert_eq!(s, "test_challenge_value");
@@ -594,7 +594,7 @@ mod tests {
             .answers()
             .iter()
             .filter_map(|r| {
-                if let Some(RData::TXT(txt)) = r.data() {
+                if let RData::TXT(txt) = r.data() {
                     std::str::from_utf8(&txt.txt_data()[0])
                         .ok()
                         .map(|s| s.to_string())
@@ -697,7 +697,7 @@ mod tests {
         assert_eq!(msg.answers().len(), 1);
 
         match msg.answers()[0].data() {
-            Some(RData::TXT(txt)) => {
+            RData::TXT(txt) => {
                 let bytes: &[u8] = &txt.txt_data()[0];
                 let s = std::str::from_utf8(bytes).unwrap();
                 assert_eq!(s, "integration_test_value");
@@ -737,7 +737,7 @@ mod tests {
             .answers()
             .iter()
             .filter_map(|r| {
-                if let Some(RData::TXT(txt)) = r.data() {
+                if let RData::TXT(txt) = r.data() {
                     std::str::from_utf8(&txt.txt_data()[0])
                         .ok()
                         .map(|s| s.to_string())
