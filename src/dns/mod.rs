@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::net::{SocketAddr, UdpSocket};
+use std::net::{IpAddr, SocketAddr, UdpSocket};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -248,86 +248,207 @@ pub fn check_ns_delegation(
     expected_ns_host: &str,
     resolver: &str,
 ) -> Result<(), AppError> {
-    use hickory_proto::rr::Name;
-    use std::str::FromStr;
-
     let challenge_name = format!("_acme-challenge.{}.", base_domain);
+    let base_name = ensure_fqdn(base_domain);
+    let expected_ns = ensure_fqdn(expected_ns_host);
 
-    // Normalise: ensure expected_ns_host ends with a trailing dot for comparison.
-    let expected_ns = if expected_ns_host.ends_with('.') {
-        expected_ns_host.to_string()
-    } else {
-        format!("{}.", expected_ns_host)
-    };
-
-    // Build NS query
-    let mut msg = Message::new();
-    msg.set_id(rand_id());
-    msg.set_message_type(MessageType::Query);
-    msg.set_op_code(OpCode::Query);
-    msg.set_recursion_desired(true);
-
-    let name = Name::from_str(&challenge_name)
-        .map_err(|e| AppError::Dns(format!("invalid name {}: {}", challenge_name, e)))?;
-    let mut query = hickory_proto::op::Query::new();
-    query.set_name(name);
-    query.set_query_type(RecordType::NS);
-    msg.add_query(query);
-
-    let wire = msg
-        .to_vec()
-        .map_err(|e| AppError::Dns(format!("failed to encode NS query: {}", e)))?;
-
-    // Send via UDP to the resolver
-    let sock = UdpSocket::bind("0.0.0.0:0")
-        .map_err(|e| AppError::Dns(format!("failed to bind UDP socket: {}", e)))?;
-    sock.set_read_timeout(Some(Duration::from_secs(5)))
-        .map_err(|e| AppError::Dns(format!("failed to set socket timeout: {}", e)))?;
-    sock.send_to(&wire, resolver)
-        .map_err(|e| AppError::Dns(format!("failed to send NS query to {}: {}", resolver, e)))?;
-
-    let mut buf = [0u8; 512];
-    let (len, _) = sock.recv_from(&mut buf).map_err(|e| {
+    let authority_ns_hosts = lookup_ns_hosts(&base_name, resolver, true).map_err(|e| {
         AppError::Dns(format!(
-            "no response from resolver {} for NS query: {}",
-            resolver, e
+            "failed to discover parent authoritative nameservers for {} via {}: {}",
+            base_name, resolver, e
         ))
     })?;
 
-    let response = Message::from_vec(&buf[..len])
-        .map_err(|e| AppError::Dns(format!("failed to parse NS response: {}", e)))?;
+    if authority_ns_hosts.is_empty() {
+        return Err(AppError::Dns(format!(
+            "could not discover parent authoritative nameservers for {} via {}",
+            base_name, resolver
+        )));
+    }
 
-    // Collect NS values from answers (and authority for referrals)
+    let authority_ips = resolve_ns_ips(&authority_ns_hosts, resolver)?;
+    if authority_ips.is_empty() {
+        return Err(AppError::Dns(format!(
+            "could not resolve parent authoritative nameserver addresses for {}",
+            base_name
+        )));
+    }
+
+    // Query parent authoritative nameservers directly with RD=0.
+    // This verifies delegation in the parent zone only, without requiring the delegated
+    // child nameserver itself to be reachable at this stage.
     let mut found: Vec<String> = Vec::new();
-    for section in [response.answers(), response.name_servers()] {
-        for record in section {
-            if record.record_type() == RecordType::NS
-                && let Some(RData::NS(ns_name)) = record.data()
-            {
-                found.push(ns_name.to_string());
-            }
+    let mut query_errors: Vec<String> = Vec::new();
+    for ip in authority_ips {
+        let server = socket_addr_from_ip(ip);
+        match query_ns_records(&challenge_name, &server, false) {
+            Ok(ns_records) => found.extend(ns_records),
+            Err(e) => query_errors.push(format!("{}: {}", server, e)),
         }
     }
+
+    found.sort();
+    found.dedup();
 
     if found.iter().any(|ns| ns == &expected_ns) {
         return Ok(());
     }
 
-    if found.is_empty() {
-        Err(AppError::Dns(format!(
-            "no NS records found for {} — add to your parent zone:\n  _acme-challenge.{}  IN NS  {}",
-            challenge_name, base_domain, expected_ns
-        )))
-    } else {
-        Err(AppError::Dns(format!(
+    if !found.is_empty() {
+        return Err(AppError::Dns(format!(
             "NS records for {} point to [{}] but expected {} — add to your parent zone:\n  _acme-challenge.{}  IN NS  {}",
             challenge_name,
             found.join(", "),
             expected_ns,
             base_domain,
             expected_ns,
-        )))
+        )));
     }
+
+    if !query_errors.is_empty() {
+        return Err(AppError::Dns(format!(
+            "unable to query parent authoritative nameservers for {}: {}",
+            challenge_name,
+            query_errors.join("; ")
+        )));
+    }
+
+    Err(AppError::Dns(format!(
+        "no NS records found for {} — add to your parent zone:\n  _acme-challenge.{}  IN NS  {}",
+        challenge_name, base_domain, expected_ns
+    )))
+}
+
+fn ensure_fqdn(name: &str) -> String {
+    let normalized = normalize_name(name);
+    format!("{}.", normalized)
+}
+
+fn socket_addr_from_ip(ip: IpAddr) -> String {
+    match ip {
+        IpAddr::V4(v4) => format!("{}:53", v4),
+        IpAddr::V6(v6) => format!("[{}]:53", v6),
+    }
+}
+
+fn query_ns_records(name: &str, server: &str, recursion_desired: bool) -> Result<Vec<String>, AppError> {
+    let response = send_dns_query(name, RecordType::NS, server, recursion_desired)?;
+    Ok(collect_ns_records(&response))
+}
+
+fn lookup_ns_hosts(name: &str, resolver: &str, recursion_desired: bool) -> Result<Vec<String>, AppError> {
+    let response = send_dns_query(name, RecordType::NS, resolver, recursion_desired)?;
+    let direct = collect_ns_records(&response);
+    if !direct.is_empty() {
+        return Ok(direct);
+    }
+
+    if let Some(zone_apex) = collect_soa_zone(&response)
+        && zone_apex != ensure_fqdn(name)
+    {
+        let zone_response = send_dns_query(&zone_apex, RecordType::NS, resolver, recursion_desired)?;
+        return Ok(collect_ns_records(&zone_response));
+    }
+
+    Ok(Vec::new())
+}
+
+fn resolve_ns_ips(ns_hosts: &[String], resolver: &str) -> Result<Vec<IpAddr>, AppError> {
+    let mut ips: Vec<IpAddr> = Vec::new();
+    for host in ns_hosts {
+        let a_response = send_dns_query(host, RecordType::A, resolver, true)?;
+        for record in a_response.answers() {
+            if record.record_type() == RecordType::A
+                && let Some(RData::A(ipv4)) = record.data()
+            {
+                ips.push(IpAddr::V4((*ipv4).into()));
+            }
+        }
+
+        let aaaa_response = send_dns_query(host, RecordType::AAAA, resolver, true)?;
+        for record in aaaa_response.answers() {
+            if record.record_type() == RecordType::AAAA
+                && let Some(RData::AAAA(ipv6)) = record.data()
+            {
+                ips.push(IpAddr::V6((*ipv6).into()));
+            }
+        }
+    }
+    ips.sort();
+    ips.dedup();
+    Ok(ips)
+}
+
+fn collect_ns_records(message: &Message) -> Vec<String> {
+    let mut found: Vec<String> = Vec::new();
+    for section in [message.answers(), message.name_servers()] {
+        for record in section {
+            if record.record_type() == RecordType::NS
+                && let Some(RData::NS(ns_name)) = record.data()
+            {
+                found.push(ensure_fqdn(&ns_name.to_string()));
+            }
+        }
+    }
+    found.sort();
+    found.dedup();
+    found
+}
+
+fn collect_soa_zone(message: &Message) -> Option<String> {
+    for section in [message.answers(), message.name_servers()] {
+        for record in section {
+            if record.record_type() == RecordType::SOA {
+                return Some(ensure_fqdn(&record.name().to_string()));
+            }
+        }
+    }
+    None
+}
+
+fn send_dns_query(
+    name: &str,
+    query_type: RecordType,
+    server: &str,
+    recursion_desired: bool,
+) -> Result<Message, AppError> {
+    use hickory_proto::rr::Name;
+    use std::str::FromStr;
+
+    let mut msg = Message::new();
+    msg.set_id(rand_id());
+    msg.set_message_type(MessageType::Query);
+    msg.set_op_code(OpCode::Query);
+    msg.set_recursion_desired(recursion_desired);
+
+    let query_name = Name::from_str(name)
+        .map_err(|e| AppError::Dns(format!("invalid name {}: {}", name, e)))?;
+    let mut query = hickory_proto::op::Query::new();
+    query.set_name(query_name);
+    query.set_query_type(query_type);
+    msg.add_query(query);
+
+    let wire = msg
+        .to_vec()
+        .map_err(|e| AppError::Dns(format!("failed to encode DNS query: {}", e)))?;
+
+    let sock = UdpSocket::bind("0.0.0.0:0")
+        .map_err(|e| AppError::Dns(format!("failed to bind UDP socket: {}", e)))?;
+    sock.set_read_timeout(Some(Duration::from_secs(5)))
+        .map_err(|e| AppError::Dns(format!("failed to set socket timeout: {}", e)))?;
+    sock.send_to(&wire, server)
+        .map_err(|e| AppError::Dns(format!("failed to send DNS query to {}: {}", server, e)))?;
+
+    let mut buf = [0u8; 512];
+    let (len, _) = sock.recv_from(&mut buf).map_err(|e| {
+        AppError::Dns(format!(
+            "no response from DNS server {} for {:?} query {}: {}",
+            server, query_type, name, e
+        ))
+    })?;
+
+    Message::from_vec(&buf[..len])
+        .map_err(|e| AppError::Dns(format!("failed to parse DNS response: {}", e)))
 }
 
 fn rand_id() -> u16 {
@@ -367,6 +488,60 @@ mod tests {
 
     fn parse_response(buf: &[u8]) -> Message {
         Message::from_vec(buf).unwrap()
+    }
+
+    #[test]
+    fn ensure_fqdn_normalizes_case_and_trailing_dot() {
+        assert_eq!(ensure_fqdn("Example.COM"), "example.com.");
+        assert_eq!(ensure_fqdn("Example.COM."), "example.com.");
+    }
+
+    #[test]
+    fn collect_ns_records_reads_answers_and_authority() {
+        use hickory_proto::rr::Name;
+        use std::str::FromStr;
+
+        let mut msg = Message::new();
+        let answer_name = Name::from_str("_acme-challenge.example.com.").unwrap();
+        let ns_one = Name::from_str("acme.example.com.").unwrap();
+        let answer = Record::from_rdata(
+            answer_name,
+            300,
+            RData::NS(hickory_proto::rr::rdata::NS(ns_one)),
+        );
+        msg.add_answer(answer);
+
+        let authority_name = Name::from_str("_acme-challenge.example.com.").unwrap();
+        let ns_two = Name::from_str("Acme-2.EXAMPLE.com.").unwrap();
+        let authority = Record::from_rdata(
+            authority_name,
+            300,
+            RData::NS(hickory_proto::rr::rdata::NS(ns_two)),
+        );
+        msg.add_name_server(authority);
+
+        let found = collect_ns_records(&msg);
+        assert_eq!(
+            found,
+            vec!["acme-2.example.com.".to_string(), "acme.example.com.".to_string()]
+        );
+    }
+
+    #[test]
+    fn collect_soa_zone_uses_authority_record_name() {
+        use hickory_proto::rr::Name;
+        use hickory_proto::rr::rdata::SOA;
+        use std::str::FromStr;
+
+        let mut msg = Message::new();
+        let zone_name = Name::from_str("vafer.work.").unwrap();
+        let mname = Name::from_str("toby.ns.cloudflare.com.").unwrap();
+        let rname = Name::from_str("dns.cloudflare.com.").unwrap();
+        let soa = SOA::new(mname, rname, 1, 60, 60, 60, 60);
+        let authority = Record::from_rdata(zone_name, 300, RData::SOA(soa));
+        msg.add_name_server(authority);
+
+        assert_eq!(collect_soa_zone(&msg), Some("vafer.work.".to_string()));
     }
 
     #[test]
