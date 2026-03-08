@@ -2,17 +2,17 @@ use std::net::IpAddr;
 use std::path::Path;
 use std::process;
 use std::str::FromStr;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use acme_dns_client::acme::{AcmeConfig, IssuanceResult, key_der_to_pem, run_acme};
+use acme_dns_client::acme::{key_der_to_pem, run_acme, AcmeConfig, IssuanceResult};
 use acme_dns_client::artifacts::{cleanup_staging, promote, staging_dir, write_staged};
 use acme_dns_client::cli::{Args, LETSENCRYPT_STAGING};
-use acme_dns_client::config::{ConfigFile, merge};
-use acme_dns_client::dns::{DnsServer, RecordStore, check_ns_delegation};
+use acme_dns_client::config::{merge, ConfigFile};
+use acme_dns_client::dns::{check_ns_delegation, DnsServer, RecordStore};
 use acme_dns_client::domain::Domain;
-use acme_dns_client::errors::{AppError, exit_code};
+use acme_dns_client::errors::{exit_code, AppError};
 use clap::Parser;
 
 /// Fetches the external public IPv4 address via ipv4.icanhazip.com.
@@ -54,7 +54,7 @@ fn cert_days_remaining(path: &Path) -> Option<i64> {
 }
 
 fn run() -> Result<(), AppError> {
-    env_logger::init();
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
     let args = Args::parse();
 
@@ -162,8 +162,8 @@ fn run() -> Result<(), AppError> {
     let ipv4 = fetch_external_ipv4();
     let ipv6 = fetch_external_ipv6();
     if ipv4.is_none() && ipv6.is_none() {
-        eprintln!(
-            "Warning: could not determine external IP via icanhazip.com; \
+        log::warn!(
+            "Could not determine external IP via icanhazip.com; \
              replace the placeholder IPs below with your actual public IP(s)."
         );
     }
@@ -202,7 +202,7 @@ fn run() -> Result<(), AppError> {
         return Err(AppError::Dns(delegation_errors.join("\n")));
     }
 
-    eprintln!("NS delegation verified. Starting ACME issuance...");
+    log::info!("NS delegation verified. Starting ACME issuance...");
 
     // Run ACME issuance
     let domain_strs: Vec<String> = domains.iter().map(|d| d.as_str().to_string()).collect();
