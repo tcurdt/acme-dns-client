@@ -168,42 +168,40 @@ fn run() -> Result<(), AppError> {
         );
     }
 
-    // Print the NS delegation records the operator must add to their parent zone.
-    // Use eprintln so this is always visible regardless of RUST_LOG level.
-    eprintln!();
-    eprintln!("Ensure these DNS records are present in your parent zone:");
-    eprintln!();
-    for domain in &domains {
-        let base = domain.base();
-        let ns_host = format!("acme.{}.", base);
-        eprintln!("  _acme-challenge.{}.  IN NS  {}", base, ns_host);
-        match ipv4 {
-            Some(ip) => eprintln!("  {}  IN A     {}", ns_host, ip),
-            None => eprintln!("  {}  IN A     <your-ipv4-address>", ns_host),
-        }
-        if let Some(ip) = ipv6 {
-            eprintln!("  {}  IN AAAA  {}", ns_host, ip);
-        }
-        eprintln!();
-    }
-
     // Verify NS delegation is in place before starting ACME flow.
     // Collect all failures first so the operator sees all missing records at once.
     let resolver = "8.8.8.8:53";
     let mut delegation_errors: Vec<String> = Vec::new();
     for domain in &domains {
         let ns_host = format!("acme.{}.", domain.base());
-        if let Err(e) = check_ns_delegation(domain.base(), &ns_host, resolver) {
-            delegation_errors.push(format!("  {}", e));
+        if let Err(AppError::Dns(msg)) = check_ns_delegation(domain.base(), &ns_host, resolver) {
+            delegation_errors.push(msg);
         }
     }
     if !delegation_errors.is_empty() {
         dns_server.stop();
-        return Err(AppError::Dns(format!(
-            "NS delegation check failed:\n{}",
-            delegation_errors.join("\n")
-        )));
+
+        // Print the NS delegation records the operator must add to their parent zone.
+        // Use eprintln so this is always visible regardless of RUST_LOG level.
+        eprintln!("Ensure these DNS records are present in your parent zone:");
+        eprintln!();
+        for domain in &domains {
+            let base = domain.base();
+            let ns_host = format!("acme.{}.", base);
+            eprintln!("  _acme-challenge.{}.  IN NS  {}", base, ns_host);
+            match ipv4 {
+                Some(ip) => eprintln!("  {}  IN A     {}", ns_host, ip),
+                None => eprintln!("  {}  IN A     <your-ipv4-address>", ns_host),
+            }
+            if let Some(ip) = ipv6 {
+                eprintln!("  {}  IN AAAA  {}", ns_host, ip);
+            }
+            eprintln!();
+        }
+
+        return Err(AppError::Dns(delegation_errors.join("\n")));
     }
+
     eprintln!("NS delegation verified. Starting ACME issuance...");
 
     // Run ACME issuance

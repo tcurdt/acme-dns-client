@@ -254,22 +254,22 @@ pub fn check_ns_delegation(
 
     let authority_ns_hosts = lookup_ns_hosts(&base_name, resolver, true).map_err(|e| {
         AppError::Dns(format!(
-            "failed to discover parent authoritative nameservers for {} via {}: {}",
+            "failed to discover authoritative nameservers for '{}' via '{}': {}",
             base_name, resolver, e
         ))
     })?;
 
     if authority_ns_hosts.is_empty() {
         return Err(AppError::Dns(format!(
-            "could not discover parent authoritative nameservers for {} via {}",
-            base_name, resolver
+            "no authoritative nameservers found for '{}'",
+            base_name
         )));
     }
 
     let authority_ips = resolve_ns_ips(&authority_ns_hosts, resolver)?;
     if authority_ips.is_empty() {
         return Err(AppError::Dns(format!(
-            "could not resolve parent authoritative nameserver addresses for {}",
+            "no addresses resolved for authoritative nameservers of '{}'",
             base_name
         )));
     }
@@ -296,26 +296,24 @@ pub fn check_ns_delegation(
 
     if !found.is_empty() {
         return Err(AppError::Dns(format!(
-            "NS records for {} point to [{}] but expected {} — add to your parent zone:\n  _acme-challenge.{}  IN NS  {}",
+            "NS records for '{}' point to [{}] but expected '{}'",
             challenge_name,
             found.join(", "),
-            expected_ns,
-            base_domain,
             expected_ns,
         )));
     }
 
     if !query_errors.is_empty() {
         return Err(AppError::Dns(format!(
-            "unable to query parent authoritative nameservers for {}: {}",
+            "unable to query authoritative nameservers for '{}': {}",
             challenge_name,
             query_errors.join("; ")
         )));
     }
 
     Err(AppError::Dns(format!(
-        "no NS records found for {} — add to your parent zone:\n  _acme-challenge.{}  IN NS  {}",
-        challenge_name, base_domain, expected_ns
+        "no NS records found for '{}'",
+        challenge_name
     )))
 }
 

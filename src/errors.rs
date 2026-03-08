@@ -14,13 +14,13 @@ pub enum AppError {
 impl fmt::Display for AppError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            AppError::Config(msg) => write!(f, "configuration error: {}", msg),
-            AppError::DomainValidation(msg) => write!(f, "domain validation error: {}", msg),
-            AppError::Dns(msg) => write!(f, "DNS error: {}", msg),
-            AppError::Acme(msg) => write!(f, "ACME error: {}", msg),
-            AppError::Output(msg) => write!(f, "output error: {}", msg),
+            AppError::Config(msg) => write!(f, "[configuration] {}", msg),
+            AppError::DomainValidation(msg) => write!(f, "[domain setup] {}", msg),
+            AppError::Dns(msg) => write!(f, "[dns] {}", msg),
+            AppError::Acme(msg) => write!(f, "[acme] {}", msg),
+            AppError::Output(msg) => write!(f, "[output]: {}", msg),
             AppError::Interrupted => write!(f, "interrupted by signal"),
-            AppError::Timeout(msg) => write!(f, "timeout: {}", msg),
+            AppError::Timeout(msg) => write!(f, "[timeout] {}", msg),
         }
     }
 }

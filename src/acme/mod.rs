@@ -89,12 +89,18 @@ struct AcmeIdentifier {
 }
 
 #[derive(Debug, Deserialize)]
+struct AcmeProblem {
+    detail: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
 struct AcmeChallenge {
     #[serde(rename = "type")]
     challenge_type: String,
     url: String,
     token: String,
     status: String,
+    error: Option<AcmeProblem>,
 }
 
 // ── Account key ───────────────────────────────────────────────────────────────
@@ -295,7 +301,7 @@ fn get_nonce(new_nonce_url: &str) -> Result<String, AppError> {
         .map_err(|e| AppError::Acme(format!("failed to get ACME nonce: {}", e)))?;
     resp.header("Replay-Nonce")
         .map(|s| s.to_string())
-        .ok_or_else(|| AppError::Acme("no Replay-Nonce in nonce response".to_string()))
+        .ok_or_else(|| AppError::Acme("no replay-nonce in nonce response".to_string()))
 }
 
 fn refresh_nonce(current: Option<String>, new_nonce_url: &str) -> Result<String, AppError> {
@@ -459,9 +465,30 @@ fn poll_order(
         );
 
         if order.status == "invalid" {
-            return Err(AppError::Acme(
-                "ACME order failed with status 'invalid'".to_string(),
-            ));
+            let mut reasons: Vec<String> = Vec::new();
+            for auth_url in &order.authorizations {
+                if let Ok(jose) = build_jose(None, key, Some(account_url), nonce, auth_url) {
+                    if let Ok(resp) = http_post_jose(auth_url, &jose) {
+                        *nonce = refresh_nonce(resp.nonce, new_nonce_url).unwrap_or_default();
+                        if let Ok(auth) = serde_json::from_str::<AcmeAuthorization>(&resp.body) {
+                            for c in &auth.challenges {
+                                if let Some(ref err) = c.error {
+                                    if let Some(ref detail) = err.detail {
+                                        reasons
+                                            .push(format!("{}: {}", auth.identifier.value, detail));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            let msg = if reasons.is_empty() {
+                "ACME challenge validation failed".to_string()
+            } else {
+                reasons.join("; ")
+            };
+            return Err(AppError::Acme(msg));
         }
         if wait_for.contains(&order.status.as_str()) {
             return Ok(order);
