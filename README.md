@@ -18,6 +18,13 @@ This project uses a narrower trust model:
 - It serves challenge TXT records only during issuance
 - It writes the certificates to disk
 
+So basically: Run this once a night via scheduler. Takes at most a few seconds.
+If needed, reload the webserver to pick up the new certs.
+
+Lightweight, fast, simple.
+
+If you're being extra cautious, you could even open the firewall only for a few seconds.
+
 ## How to use it
 
 ### 1) Configure DNS delegation once
@@ -41,7 +48,7 @@ acme-dns-client \
   -d "*.example.com" \
   -d "example.com" \
   --email ops@example.com \
-  --output-dir ./certs
+  --output-dir /etc/letsencrypt/live/example.com/
 ```
 
 Then switch to production by removing `--staging` (or setting `--provider-url`).
