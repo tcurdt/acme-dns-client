@@ -467,17 +467,16 @@ fn poll_order(
         if order.status == "invalid" {
             let mut reasons: Vec<String> = Vec::new();
             for auth_url in &order.authorizations {
-                if let Ok(jose) = build_jose(None, key, Some(account_url), nonce, auth_url) {
-                    if let Ok(resp) = http_post_jose(auth_url, &jose) {
-                        *nonce = refresh_nonce(resp.nonce, new_nonce_url).unwrap_or_default();
-                        if let Ok(auth) = serde_json::from_str::<AcmeAuthorization>(&resp.body) {
-                            for c in &auth.challenges {
-                                if let Some(ref err) = c.error {
-                                    if let Some(ref detail) = err.detail {
-                                        reasons
-                                            .push(format!("{}: {}", auth.identifier.value, detail));
-                                    }
-                                }
+                if let Ok(jose) = build_jose(None, key, Some(account_url), nonce, auth_url)
+                    && let Ok(resp) = http_post_jose(auth_url, &jose)
+                {
+                    *nonce = refresh_nonce(resp.nonce, new_nonce_url).unwrap_or_default();
+                    if let Ok(auth) = serde_json::from_str::<AcmeAuthorization>(&resp.body) {
+                        for c in &auth.challenges {
+                            if let Some(ref err) = c.error
+                                && let Some(ref detail) = err.detail
+                            {
+                                reasons.push(format!("{}: {}", auth.identifier.value, detail));
                             }
                         }
                     }

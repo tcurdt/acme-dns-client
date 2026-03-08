@@ -2,17 +2,17 @@ use std::net::IpAddr;
 use std::path::Path;
 use std::process;
 use std::str::FromStr;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use acme_dns_client::acme::{key_der_to_pem, run_acme, AcmeConfig, IssuanceResult};
+use acme_dns_client::acme::{AcmeConfig, IssuanceResult, key_der_to_pem, run_acme};
 use acme_dns_client::artifacts::{cleanup_staging, promote, staging_dir, write_staged};
 use acme_dns_client::cli::{Args, LETSENCRYPT_STAGING};
-use acme_dns_client::config::{merge, ConfigFile};
-use acme_dns_client::dns::{check_ns_delegation, DnsServer, RecordStore};
+use acme_dns_client::config::{ConfigFile, merge};
+use acme_dns_client::dns::{DnsServer, RecordStore, check_ns_delegation};
 use acme_dns_client::domain::Domain;
-use acme_dns_client::errors::{exit_code, AppError};
+use acme_dns_client::errors::{AppError, exit_code};
 use clap::Parser;
 
 /// Fetches the external public IPv4 address via ipv4.icanhazip.com.

@@ -329,12 +329,20 @@ fn socket_addr_from_ip(ip: IpAddr) -> String {
     }
 }
 
-fn query_ns_records(name: &str, server: &str, recursion_desired: bool) -> Result<Vec<String>, AppError> {
+fn query_ns_records(
+    name: &str,
+    server: &str,
+    recursion_desired: bool,
+) -> Result<Vec<String>, AppError> {
     let response = send_dns_query(name, RecordType::NS, server, recursion_desired)?;
     Ok(collect_ns_records(&response))
 }
 
-fn lookup_ns_hosts(name: &str, resolver: &str, recursion_desired: bool) -> Result<Vec<String>, AppError> {
+fn lookup_ns_hosts(
+    name: &str,
+    resolver: &str,
+    recursion_desired: bool,
+) -> Result<Vec<String>, AppError> {
     let response = send_dns_query(name, RecordType::NS, resolver, recursion_desired)?;
     let direct = collect_ns_records(&response);
     if !direct.is_empty() {
@@ -344,7 +352,8 @@ fn lookup_ns_hosts(name: &str, resolver: &str, recursion_desired: bool) -> Resul
     if let Some(zone_apex) = collect_soa_zone(&response)
         && zone_apex != ensure_fqdn(name)
     {
-        let zone_response = send_dns_query(&zone_apex, RecordType::NS, resolver, recursion_desired)?;
+        let zone_response =
+            send_dns_query(&zone_apex, RecordType::NS, resolver, recursion_desired)?;
         return Ok(collect_ns_records(&zone_response));
     }
 
@@ -419,8 +428,8 @@ fn send_dns_query(
     msg.set_op_code(OpCode::Query);
     msg.set_recursion_desired(recursion_desired);
 
-    let query_name = Name::from_str(name)
-        .map_err(|e| AppError::Dns(format!("invalid name {}: {}", name, e)))?;
+    let query_name =
+        Name::from_str(name).map_err(|e| AppError::Dns(format!("invalid name {}: {}", name, e)))?;
     let mut query = hickory_proto::op::Query::new();
     query.set_name(query_name);
     query.set_query_type(query_type);
@@ -521,7 +530,10 @@ mod tests {
         let found = collect_ns_records(&msg);
         assert_eq!(
             found,
-            vec!["acme-2.example.com.".to_string(), "acme.example.com.".to_string()]
+            vec![
+                "acme-2.example.com.".to_string(),
+                "acme.example.com.".to_string()
+            ]
         );
     }
 
