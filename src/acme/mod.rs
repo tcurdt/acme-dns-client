@@ -258,24 +258,24 @@ struct PostResult {
 }
 
 fn http_get_json(url: &str) -> Result<Value, AppError> {
-    let resp = ureq::get(url)
+    let mut resp = ureq::get(url)
         .call()
         .map_err(|e| AppError::Acme(format!("GET {} failed: {}", url, e)))?;
-    resp.into_json()
+    resp.body_mut()
+        .read_json()
         .map_err(|e| AppError::Acme(format!("failed to parse JSON from {}: {}", url, e)))
 }
 
 fn http_post_jose(url: &str, jose: &Value) -> Result<PostResult, AppError> {
-    let resp = match ureq::post(url)
-        .set("Content-Type", "application/jose+json")
-        .send_json(jose.clone())
+    let mut resp = match ureq::post(url)
+        .header("Content-Type", "application/jose+json")
+        .send_json(jose)
     {
         Ok(r) => r,
-        Err(ureq::Error::Status(code, r)) => {
-            let body = r.into_string().unwrap_or_default();
+        Err(ureq::Error::StatusCode(code)) => {
             return Err(AppError::Acme(format!(
-                "ACME server returned {} at {}: {}",
-                code, url, body
+                "ACME server returned {} at {}",
+                code, url
             )));
         }
         Err(e) => {
@@ -283,10 +283,19 @@ fn http_post_jose(url: &str, jose: &Value) -> Result<PostResult, AppError> {
         }
     };
 
-    let location = resp.header("Location").map(|s| s.to_string());
-    let nonce = resp.header("Replay-Nonce").map(|s| s.to_string());
+    let location = resp
+        .headers()
+        .get("Location")
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string());
+    let nonce = resp
+        .headers()
+        .get("Replay-Nonce")
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string());
     let body = resp
-        .into_string()
+        .body_mut()
+        .read_to_string()
         .map_err(|e| AppError::Acme(format!("failed to read response body: {}", e)))?;
     Ok(PostResult {
         location,
@@ -299,7 +308,9 @@ fn get_nonce(new_nonce_url: &str) -> Result<String, AppError> {
     let resp = ureq::head(new_nonce_url)
         .call()
         .map_err(|e| AppError::Acme(format!("failed to get ACME nonce: {}", e)))?;
-    resp.header("Replay-Nonce")
+    resp.headers()
+        .get("Replay-Nonce")
+        .and_then(|v| v.to_str().ok())
         .map(|s| s.to_string())
         .ok_or_else(|| AppError::Acme("no replay-nonce in nonce response".to_string()))
 }

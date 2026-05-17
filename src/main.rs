@@ -21,7 +21,8 @@ fn fetch_external_ipv4() -> Option<IpAddr> {
     let body = ureq::get("https://ipv4.icanhazip.com")
         .call()
         .ok()?
-        .into_string()
+        .into_body()
+        .read_to_string()
         .ok()?;
     IpAddr::from_str(body.trim()).ok()
 }
@@ -32,7 +33,8 @@ fn fetch_external_ipv6() -> Option<IpAddr> {
     let body = ureq::get("https://ipv6.icanhazip.com")
         .call()
         .ok()?
-        .into_string()
+        .into_body()
+        .read_to_string()
         .ok()?;
     IpAddr::from_str(body.trim()).ok()
 }

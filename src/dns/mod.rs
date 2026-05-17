@@ -180,13 +180,10 @@ fn serve(
 /// Builds a minimal REFUSED response for the given raw request bytes.
 fn make_refused_response(buf: &[u8]) -> Result<Vec<u8>, String> {
     let request = Message::from_vec(buf).map_err(|e| format!("parse error: {}", e))?;
-    let mut response = Message::new();
-    response.set_id(request.id());
-    response.set_message_type(MessageType::Response);
-    response.set_op_code(OpCode::Query);
-    response.set_recursion_desired(request.recursion_desired());
-    response.set_authoritative(true);
-    response.set_response_code(ResponseCode::Refused);
+    let mut response = Message::response(request.metadata.id, OpCode::Query);
+    response.metadata.recursion_desired = request.metadata.recursion_desired;
+    response.metadata.authoritative = true;
+    response.metadata.response_code = ResponseCode::Refused;
     encode(&response)
 }
 
@@ -194,22 +191,19 @@ fn handle_query(buf: &[u8], store: &RecordStore) -> Result<Vec<u8>, String> {
     let request =
         Message::from_vec(buf).map_err(|e| format!("failed to parse DNS message: {}", e))?;
 
-    let mut response = Message::new();
-    response.set_id(request.id());
-    response.set_message_type(MessageType::Response);
-    response.set_op_code(OpCode::Query);
-    response.set_recursion_desired(request.recursion_desired());
-    response.set_authoritative(true);
+    let mut response = Message::response(request.metadata.id, OpCode::Query);
+    response.metadata.recursion_desired = request.metadata.recursion_desired;
+    response.metadata.authoritative = true;
 
     // Only handle standard queries
-    if request.op_code() != OpCode::Query || request.message_type() != MessageType::Query {
-        response.set_response_code(ResponseCode::Refused);
+    if request.metadata.op_code != OpCode::Query || request.metadata.message_type != MessageType::Query {
+        response.metadata.response_code = ResponseCode::Refused;
         return encode(&response);
     }
 
     let mut rcode = ResponseCode::NoError;
 
-    for query in request.queries() {
+    for query in &request.queries {
         response.add_query(query.clone());
 
         let qname = normalize_name(&query.name().to_string());
@@ -233,7 +227,7 @@ fn handle_query(buf: &[u8], store: &RecordStore) -> Result<Vec<u8>, String> {
         }
     }
 
-    response.set_response_code(rcode);
+    response.metadata.response_code = rcode;
     encode(&response)
 }
 
@@ -364,18 +358,18 @@ fn resolve_ns_ips(ns_hosts: &[String], resolver: &str) -> Result<Vec<IpAddr>, Ap
     let mut ips: Vec<IpAddr> = Vec::new();
     for host in ns_hosts {
         let a_response = send_dns_query(host, RecordType::A, resolver, true)?;
-        for record in a_response.answers() {
+        for record in &a_response.answers {
             if record.record_type() == RecordType::A
-                && let RData::A(ipv4) = record.data()
+                && let RData::A(ipv4) = &record.data
             {
                 ips.push(IpAddr::V4((*ipv4).into()));
             }
         }
 
         let aaaa_response = send_dns_query(host, RecordType::AAAA, resolver, true)?;
-        for record in aaaa_response.answers() {
+        for record in &aaaa_response.answers {
             if record.record_type() == RecordType::AAAA
-                && let RData::AAAA(ipv6) = record.data()
+                && let RData::AAAA(ipv6) = &record.data
             {
                 ips.push(IpAddr::V6((*ipv6).into()));
             }
@@ -388,10 +382,10 @@ fn resolve_ns_ips(ns_hosts: &[String], resolver: &str) -> Result<Vec<IpAddr>, Ap
 
 fn collect_ns_records(message: &Message) -> Vec<String> {
     let mut found: Vec<String> = Vec::new();
-    for section in [message.answers(), message.name_servers()] {
+    for section in [message.answers.as_slice(), message.authorities.as_slice()] {
         for record in section {
             if record.record_type() == RecordType::NS
-                && let RData::NS(ns_name) = record.data()
+                && let RData::NS(ns_name) = &record.data
             {
                 found.push(ensure_fqdn(&ns_name.to_string()));
             }
@@ -403,10 +397,10 @@ fn collect_ns_records(message: &Message) -> Vec<String> {
 }
 
 fn collect_soa_zone(message: &Message) -> Option<String> {
-    for section in [message.answers(), message.name_servers()] {
+    for section in [message.answers.as_slice(), message.authorities.as_slice()] {
         for record in section {
             if record.record_type() == RecordType::SOA {
-                return Some(ensure_fqdn(&record.name().to_string()));
+                return Some(ensure_fqdn(&record.name.to_string()));
             }
         }
     }
@@ -422,11 +416,8 @@ fn send_dns_query(
     use hickory_proto::rr::Name;
     use std::str::FromStr;
 
-    let mut msg = Message::new();
-    msg.set_id(rand_id());
-    msg.set_message_type(MessageType::Query);
-    msg.set_op_code(OpCode::Query);
-    msg.set_recursion_desired(recursion_desired);
+    let mut msg = Message::new(rand_id(), MessageType::Query, OpCode::Query);
+    msg.metadata.recursion_desired = recursion_desired;
 
     let query_name =
         Name::from_str(name).map_err(|e| AppError::Dns(format!("invalid name {}: {}", name, e)))?;
@@ -480,11 +471,7 @@ mod tests {
     use std::str::FromStr;
 
     fn make_txt_query(name: &str) -> Vec<u8> {
-        let mut msg = Message::new();
-        msg.set_id(1234);
-        msg.set_message_type(MessageType::Query);
-        msg.set_op_code(OpCode::Query);
-        msg.set_recursion_desired(false);
+        let mut msg = Message::new(1234, MessageType::Query, OpCode::Query);
         let name = Name::from_str(name).unwrap();
         let mut query = Query::new();
         query.set_name(name);
@@ -508,7 +495,7 @@ mod tests {
         use hickory_proto::rr::Name;
         use std::str::FromStr;
 
-        let mut msg = Message::new();
+        let mut msg = Message::new(0, MessageType::Query, OpCode::Query);
         let answer_name = Name::from_str("_acme-challenge.example.com.").unwrap();
         let ns_one = Name::from_str("acme.example.com.").unwrap();
         let answer = Record::from_rdata(
@@ -525,7 +512,7 @@ mod tests {
             300,
             RData::NS(hickory_proto::rr::rdata::NS(ns_two)),
         );
-        msg.add_name_server(authority);
+        msg.add_authority(authority);
 
         let found = collect_ns_records(&msg);
         assert_eq!(
@@ -543,13 +530,13 @@ mod tests {
         use hickory_proto::rr::rdata::SOA;
         use std::str::FromStr;
 
-        let mut msg = Message::new();
+        let mut msg = Message::new(0, MessageType::Query, OpCode::Query);
         let zone_name = Name::from_str("vafer.work.").unwrap();
         let mname = Name::from_str("toby.ns.cloudflare.com.").unwrap();
         let rname = Name::from_str("dns.cloudflare.com.").unwrap();
         let soa = SOA::new(mname, rname, 1, 60, 60, 60, 60);
         let authority = Record::from_rdata(zone_name, 300, RData::SOA(soa));
-        msg.add_name_server(authority);
+        msg.add_authority(authority);
 
         assert_eq!(collect_soa_zone(&msg), Some("vafer.work.".to_string()));
     }
@@ -563,12 +550,12 @@ mod tests {
         let response = handle_query(&query, &store).unwrap();
         let msg = parse_response(&response);
 
-        assert_eq!(msg.response_code(), ResponseCode::NoError);
-        assert_eq!(msg.answers().len(), 1);
+        assert_eq!(msg.metadata.response_code, ResponseCode::NoError);
+        assert_eq!(msg.answers.len(), 1);
 
-        match msg.answers()[0].data() {
+        match &msg.answers[0].data {
             RData::TXT(txt) => {
-                let bytes: &[u8] = &txt.txt_data()[0];
+                let bytes: &[u8] = &txt.txt_data[0];
                 let s = std::str::from_utf8(bytes).unwrap();
                 assert_eq!(s, "test_challenge_value");
             }
@@ -587,15 +574,15 @@ mod tests {
         let response = handle_query(&query, &store).unwrap();
         let msg = parse_response(&response);
 
-        assert_eq!(msg.response_code(), ResponseCode::NoError);
-        assert_eq!(msg.answers().len(), 2);
+        assert_eq!(msg.metadata.response_code, ResponseCode::NoError);
+        assert_eq!(msg.answers.len(), 2);
 
         let values: Vec<String> = msg
-            .answers()
+            .answers
             .iter()
             .filter_map(|r| {
-                if let RData::TXT(txt) = r.data() {
-                    std::str::from_utf8(&txt.txt_data()[0])
+                if let RData::TXT(txt) = &r.data {
+                    std::str::from_utf8(&txt.txt_data[0])
                         .ok()
                         .map(|s| s.to_string())
                 } else {
@@ -615,8 +602,8 @@ mod tests {
         let response = handle_query(&query, &store).unwrap();
         let msg = parse_response(&response);
 
-        assert_eq!(msg.response_code(), ResponseCode::NXDomain);
-        assert_eq!(msg.answers().len(), 0);
+        assert_eq!(msg.metadata.response_code, ResponseCode::NXDomain);
+        assert_eq!(msg.answers.len(), 0);
     }
 
     #[test]
@@ -627,7 +614,7 @@ mod tests {
         let response = handle_query(&query, &store).unwrap();
         let msg = parse_response(&response);
 
-        assert_eq!(msg.response_code(), ResponseCode::Refused);
+        assert_eq!(msg.metadata.response_code, ResponseCode::Refused);
     }
 
     #[test]
@@ -693,12 +680,12 @@ mod tests {
         let (len, _) = client.recv_from(&mut buf).unwrap();
         let msg = parse_response(&buf[..len]);
 
-        assert_eq!(msg.response_code(), ResponseCode::NoError);
-        assert_eq!(msg.answers().len(), 1);
+        assert_eq!(msg.metadata.response_code, ResponseCode::NoError);
+        assert_eq!(msg.answers.len(), 1);
 
-        match msg.answers()[0].data() {
+        match &msg.answers[0].data {
             RData::TXT(txt) => {
-                let bytes: &[u8] = &txt.txt_data()[0];
+                let bytes: &[u8] = &txt.txt_data[0];
                 let s = std::str::from_utf8(bytes).unwrap();
                 assert_eq!(s, "integration_test_value");
             }
@@ -730,15 +717,15 @@ mod tests {
         let (len, _) = client.recv_from(&mut buf).unwrap();
         let msg = parse_response(&buf[..len]);
 
-        assert_eq!(msg.response_code(), ResponseCode::NoError);
-        assert_eq!(msg.answers().len(), 2);
+        assert_eq!(msg.metadata.response_code, ResponseCode::NoError);
+        assert_eq!(msg.answers.len(), 2);
 
         let values: Vec<String> = msg
-            .answers()
+            .answers
             .iter()
             .filter_map(|r| {
-                if let RData::TXT(txt) = r.data() {
-                    std::str::from_utf8(&txt.txt_data()[0])
+                if let RData::TXT(txt) = &r.data {
+                    std::str::from_utf8(&txt.txt_data[0])
                         .ok()
                         .map(|s| s.to_string())
                 } else {
@@ -778,8 +765,8 @@ mod tests {
         let msg = parse_response(&buf[..len]);
 
         // Single query within cap should succeed
-        assert_eq!(msg.response_code(), ResponseCode::NoError);
-        assert_eq!(msg.answers().len(), 1);
+        assert_eq!(msg.metadata.response_code, ResponseCode::NoError);
+        assert_eq!(msg.answers.len(), 1);
 
         server.stop();
     }
