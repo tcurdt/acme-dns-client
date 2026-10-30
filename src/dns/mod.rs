@@ -196,7 +196,9 @@ fn handle_query(buf: &[u8], store: &RecordStore) -> Result<Vec<u8>, String> {
     response.metadata.authoritative = true;
 
     // Only handle standard queries
-    if request.metadata.op_code != OpCode::Query || request.metadata.message_type != MessageType::Query {
+    if request.metadata.op_code != OpCode::Query
+        || request.metadata.message_type != MessageType::Query
+    {
         response.metadata.response_code = ResponseCode::Refused;
         return encode(&response);
     }

@@ -31,3 +31,6 @@ update:
 
 run *args:
     cargo run -- {{ args }}
+
+flake:
+    nix build
