@@ -6,7 +6,7 @@ version = 4
 name = "acme-dns-client"
 version = "0.2.0"
 dependencies = [
- "base64 0.22.1",
+ "base64",
  "clap",
  "ctrlc",
  "env_logger",
@@ -131,12 +131,6 @@ name = "autocfg"
 version = "1.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f2032f911046de80f0a198e0901378627c33f59ea0ac00e363d481118bd70a53"
-
-[[package]]
-name = "base64"
-version = "0.22.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
 
 [[package]]
 name = "base64"
@@ -941,7 +935,7 @@ version = "4.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d354a98a3d1251555de99e8fdd8afda05573c31b82f59063a7b0a29b5527f120"
 dependencies = [
- "base64 0.23.1",
+ "base64",
  "serde_core",
 ]
 
@@ -1469,7 +1463,7 @@ version = "3.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cde93ff05758a36a851a398a772b0b79a82fbe3c186a46f2696baaeaf84c966b"
 dependencies = [
- "base64 0.23.1",
+ "base64",
  "cookie_store",
  "flate2",
  "log",
@@ -1489,7 +1483,7 @@ version = "0.6.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "841583fc36089d7d59419568ae157f43a5a03a2e5a81ba87c77d1596ef46e922"
 dependencies = [
- "base64 0.23.1",
+ "base64",
  "http",
  "httparse",
  "log",
