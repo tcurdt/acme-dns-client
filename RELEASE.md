@@ -6,7 +6,7 @@ Update the version in `Cargo.toml`:
 
 ```toml
 [package]
-version = "0.2.0"  # Update this
+version = "0.3.0"  # Update this
 ```
 
 ### 2. Check dependencies (optional)

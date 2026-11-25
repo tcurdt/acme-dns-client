@@ -217,7 +217,8 @@ fn handle_query(buf: &[u8], store: &RecordStore) -> Result<Vec<u8>, String> {
                 Some(txt_values) => {
                     let name = query.name().clone();
                     for txt_value in txt_values {
-                        let txt = TXT::new(vec![txt_value]);
+                        let txt = TXT::try_from(txt_value)
+                            .map_err(|e| format!("invalid TXT value: {}", e))?;
                         let record = Record::from_rdata(name.clone(), 60, RData::TXT(txt));
                         response.add_answer(record);
                     }

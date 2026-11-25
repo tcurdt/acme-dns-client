@@ -1,5 +1,10 @@
 # version: dev
 
+# version 0.4, 2026-11-25
+
+- changed: updated dependencies
+- fixed: unrequire params if config is used
+
 # version 0.3, 2026-10-30
 
 - changed: updated dependencies
