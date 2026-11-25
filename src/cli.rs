@@ -8,7 +8,8 @@ pub const LETSENCRYPT_STAGING: &str = "https://acme-staging-v02.api.letsencrypt.
 #[command(name = "acme-dns-client", version, about)]
 pub struct Args {
     /// Domain name(s) to include in the certificate (repeatable, wildcards supported).
-    #[arg(short = 'd', long = "domain", required = true)]
+    /// Optional with `--config`, which can list them as `domains`.
+    #[arg(short = 'd', long = "domain", required_unless_present = "config")]
     pub domains: Vec<String>,
 
     /// ACME directory URL (default: `https://acme-v02.api.letsencrypt.org/directory`).
@@ -62,4 +63,34 @@ pub struct Args {
     /// Force renewal even if the certificate is still recent enough.
     #[arg(long = "force")]
     pub force: bool,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn domain_required_without_config() {
+        assert!(Args::try_parse_from(["acme-dns-client"]).is_err());
+    }
+
+    #[test]
+    fn config_alone_is_accepted() {
+        let args = Args::try_parse_from(["acme-dns-client", "--config", "x.toml"]).unwrap();
+        assert!(args.domains.is_empty());
+        assert_eq!(args.config.as_deref(), Some("x.toml"));
+    }
+
+    #[test]
+    fn domains_on_cli_with_config() {
+        let args = Args::try_parse_from([
+            "acme-dns-client",
+            "--config",
+            "x.toml",
+            "-d",
+            "*.example.com",
+        ])
+        .unwrap();
+        assert_eq!(args.domains, vec!["*.example.com"]);
+    }
 }
