@@ -658,7 +658,7 @@ pub fn run_acme(
         let txt_value = dns01_txt_value(&challenge.token, &thumbprint);
         let record_name = format!("_acme-challenge.{}", auth.identifier.value);
         log::info!("Publishing TXT {} = {}", record_name, txt_value);
-        store.insert(&record_name, &txt_value);
+        store.insert(&record_name, &txt_value)?;
         challenge_urls.push(challenge.url.clone());
     }
 

@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::net::{IpAddr, SocketAddr, UdpSocket};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread;
 use std::time::Duration;
 
@@ -26,28 +26,30 @@ impl RecordStore {
         Self::default()
     }
 
+    fn lock(&self) -> Result<MutexGuard<'_, HashMap<String, Vec<String>>>, AppError> {
+        self.inner
+            .lock()
+            .map_err(|_| AppError::Dns("record store lock poisoned".to_string()))
+    }
+
     /// Appends a TXT value for the given name.
     ///
     /// Multiple values for the same name are kept (returned as separate DNS answers).
-    pub fn insert(&self, name: &str, txt: &str) {
-        self.inner
-            .lock()
-            .unwrap()
+    pub fn insert(&self, name: &str, txt: &str) -> Result<(), AppError> {
+        self.lock()?
             .entry(normalize_name(name))
             .or_default()
             .push(txt.to_string());
+        Ok(())
     }
 
-    pub fn remove(&self, name: &str) {
-        self.inner.lock().unwrap().remove(&normalize_name(name));
+    pub fn remove(&self, name: &str) -> Result<(), AppError> {
+        self.lock()?.remove(&normalize_name(name));
+        Ok(())
     }
 
-    pub fn get(&self, name: &str) -> Option<Vec<String>> {
-        self.inner
-            .lock()
-            .unwrap()
-            .get(&normalize_name(name))
-            .cloned()
+    pub fn get(&self, name: &str) -> Result<Option<Vec<String>>, AppError> {
+        Ok(self.lock()?.get(&normalize_name(name)).cloned())
     }
 }
 
@@ -211,7 +213,7 @@ fn handle_query(buf: &[u8], store: &RecordStore) -> Result<Vec<u8>, String> {
         let qname = normalize_name(&query.name().to_string());
 
         if query.query_type() == RecordType::TXT && qname.starts_with("_acme-challenge.") {
-            match store.get(&qname) {
+            match store.get(&qname).map_err(|e| e.to_string())? {
                 Some(txt_values) => {
                     let name = query.name().clone();
                     for txt_value in txt_values {
@@ -546,7 +548,9 @@ mod tests {
     #[test]
     fn txt_record_found() {
         let store = RecordStore::new();
-        store.insert("_acme-challenge.example.com", "test_challenge_value");
+        store
+            .insert("_acme-challenge.example.com", "test_challenge_value")
+            .unwrap();
 
         let query = make_txt_query("_acme-challenge.example.com");
         let response = handle_query(&query, &store).unwrap();
@@ -569,8 +573,12 @@ mod tests {
     fn txt_multiple_values_returned_as_separate_answers() {
         let store = RecordStore::new();
         // Simulate wildcard + base domain order: both challenges at the same name
-        store.insert("_acme-challenge.example.com", "value_for_wildcard");
-        store.insert("_acme-challenge.example.com", "value_for_base");
+        store
+            .insert("_acme-challenge.example.com", "value_for_wildcard")
+            .unwrap();
+        store
+            .insert("_acme-challenge.example.com", "value_for_base")
+            .unwrap();
 
         let query = make_txt_query("_acme-challenge.example.com");
         let response = handle_query(&query, &store).unwrap();
@@ -631,32 +639,34 @@ mod tests {
     #[test]
     fn record_store_insert_get_remove() {
         let store = RecordStore::new();
-        assert!(store.get("_acme-challenge.example.com").is_none());
+        assert!(store.get("_acme-challenge.example.com").unwrap().is_none());
 
-        store.insert("_acme-challenge.example.com", "abc123");
+        store
+            .insert("_acme-challenge.example.com", "abc123")
+            .unwrap();
         assert_eq!(
-            store.get("_acme-challenge.example.com"),
+            store.get("_acme-challenge.example.com").unwrap(),
             Some(vec!["abc123".to_string()])
         );
 
         // Lookup with trailing dot should also work
         assert_eq!(
-            store.get("_acme-challenge.example.com."),
+            store.get("_acme-challenge.example.com.").unwrap(),
             Some(vec!["abc123".to_string()])
         );
 
-        store.remove("_acme-challenge.example.com");
-        assert!(store.get("_acme-challenge.example.com").is_none());
+        store.remove("_acme-challenge.example.com").unwrap();
+        assert!(store.get("_acme-challenge.example.com").unwrap().is_none());
     }
 
     #[test]
     fn record_store_multiple_values_per_name() {
         let store = RecordStore::new();
 
-        store.insert("_acme-challenge.example.com", "val1");
-        store.insert("_acme-challenge.example.com", "val2");
+        store.insert("_acme-challenge.example.com", "val1").unwrap();
+        store.insert("_acme-challenge.example.com", "val2").unwrap();
 
-        let values = store.get("_acme-challenge.example.com").unwrap();
+        let values = store.get("_acme-challenge.example.com").unwrap().unwrap();
         assert_eq!(values.len(), 2);
         assert!(values.contains(&"val1".to_string()));
         assert!(values.contains(&"val2".to_string()));
@@ -665,7 +675,9 @@ mod tests {
     #[test]
     fn dns_server_integration() {
         let store = Arc::new(RecordStore::new());
-        store.insert("_acme-challenge.example.com", "integration_test_value");
+        store
+            .insert("_acme-challenge.example.com", "integration_test_value")
+            .unwrap();
 
         let mut server = DnsServer::new("127.0.0.1:0".parse().unwrap(), Arc::clone(&store), 0);
         let server_addr = server.start().unwrap();
@@ -701,8 +713,12 @@ mod tests {
     fn dns_server_multi_value_integration() {
         let store = Arc::new(RecordStore::new());
         // Simulate *.example.com + example.com in one order (both challenge at same name)
-        store.insert("_acme-challenge.example.com", "wildcard_token_value");
-        store.insert("_acme-challenge.example.com", "base_token_value");
+        store
+            .insert("_acme-challenge.example.com", "wildcard_token_value")
+            .unwrap();
+        store
+            .insert("_acme-challenge.example.com", "base_token_value")
+            .unwrap();
 
         let mut server = DnsServer::new("127.0.0.1:0".parse().unwrap(), Arc::clone(&store), 0);
         let server_addr = server.start().unwrap();
@@ -749,7 +765,9 @@ mod tests {
         // each recv_from loop iteration.
         // We test that with cap=1 the server still works for a normal single query.
         let store = Arc::new(RecordStore::new());
-        store.insert("_acme-challenge.example.com", "cap_test_value");
+        store
+            .insert("_acme-challenge.example.com", "cap_test_value")
+            .unwrap();
 
         let mut server = DnsServer::new("127.0.0.1:0".parse().unwrap(), Arc::clone(&store), 1);
         let server_addr = server.start().unwrap();
